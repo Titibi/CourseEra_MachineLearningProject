@@ -1,0 +1,95 @@
+---
+title: "Machine Learning Project - Classifying Exercise"
+author: "Will Gaines"
+date: "06/07/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This report will investigate classification of how different test subjects performed bicep curl exercises.
+In the experiment, the subjects were asked to perform the exercise correctly, and then incorrectly in several different ways.
+During these exercises, the participants wore 5 different sensors, and a sixth was attached to the dumbbell.
+We will now investigate if, given the data from these sensors, we can classify how the exercises were performed, as indicated by the Classe variable.
+We have been provided with test and training sets for this research, so there is no need to partition the data ourselves.
+We will be using the Caret package for much of the analysis in this report.
+So we will read in the data straightoff (assuming the files are in the users working directory):
+
+```{r}
+library(caret)
+training<-read.csv("pml-training.csv",na.strings = c("","NA"))
+testing<-read.csv("pml-testing.csv",na.strings = c("","NA"))
+```
+
+##Initial Analysis##
+An initial investigation is always useful. We start by examining how many NA values we have for each variable.
+This will give us an idea of how complete the data is, and if there are any with lots of NA values, we can eliminate them to speed up our analysis.
+We will make a data frame showing the percentage of values for each variable which are NA:
+```{r}
+datacheck<-data.frame(vars=colnames(training))
+for(i in 1:160) {
+    datacheck$errors[i]=sum(is.na(training[,i]))/length(training[,i])
+}
+sum(datacheck$errors==0)
+sum(datacheck$errors<0.9)
+```
+This shows that we have 60 variables (out of the original 160), which have a full set of data.
+We can also see that the same 100 variables with any NA values in fact have more than 90% of values as NA. So we are happy to exclude them from our dataset.
+
+```{r}
+index<-c(datacheck$errors==0)
+training2<-training[,index]
+```
+
+##Pre-Processing##
+Though we have removed many of the variables which will be of little impact, 60 variables is still a lot to work with.
+We will therefore look at using some preprocessing to reduce the number of variables we need to use- specifically, Principal Component Analysis.
+For this we will use the preprocessing functionality in the caret package:
+```{r}
+preProc<-preProcess(training2, method=c("center","scale","pca"))
+trainingProc<-predict(preProc,training2)
+
+preProc
+```
+
+We can now see that, to capture 95% of the data's accuracy, we only need 27 principle component variables.
+This will, ideally, make the training for our model(s) marginally quicker, and more accurate.
+Though we recognise that this loses an element of explainability, this report is intended for purely technical audiences, so its of less concern.
+
+##Model Development##
+We know that we are trying to predict a factor variable. A tree based model therefore seems to be the best option, so we will consider 2 options.
+First we will try a probability tree model, using k-fold cross validation to improve accuracy (we will use k = 10 as is common).
+We will then also use a random forest model (for which cross validation are not really necessary), and compare the accuracy of both models.
+
+First, the tree model, with cross validation:
+```{r}
+set.seed(1000)
+train_control<- trainControl(method="cv", number=10, savePredictions = TRUE)
+model<- train(classe~., data=trainingProc, trControl=train_control, method="rpart")
+```
+
+Next the random forest model:
+```{r}
+set.seed(1000)
+model2<- train(classe~., data=trainingProc, method="rf")
+```
+
+Now we shall compare the relative accuracy of the two models:
+```{r}
+model
+model2
+```
+
+We can see from this that the final model from our random forest model is the more accurate, with 99% accuracy, compared to not even 50% from the probability tree model.
+So we shall accept the random forest as our model.
+Lastly, we will look at the final model generated:
+```{r}
+model2$finalModel
+```
+We can see that the final model has included 500 different trees in its classification, and uses 27 variables (the principal components).
+The highest error rate is in classifying category D exercises, which is something users of this model would likely need to bear in mind.
+Likewise the Principal Components would need to be re-calculated on any new datasets provided for prediction via this model.
+However, over the whole dataset, the accuracy is well above the minimum level we would usually require.
+
